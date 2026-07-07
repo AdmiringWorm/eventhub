@@ -175,10 +175,10 @@ namespace EventHub.Data
                     name: blazorClientId,
                     scopes: commonScopes.Union(new []{"EventHubAdmin"}),
                     grantTypes: new[] { "authorization_code" },
-                    secret: configurationSection["EventHub_Blazor:ClientSecret"]?.Sha256(),
-                    requireClientSecret: false,
-                    redirectUri: $"{blazorRootUrl}/authentication/login-callback",
-                    postLogoutRedirectUri: $"{blazorRootUrl}/authentication/logout-callback",
+                    secret: (configurationSection["EventHub_Blazor:ClientSecret"] ?? "1q2w3e*").Sha256(),
+                    requireClientSecret: true,
+                    redirectUri: $"{blazorRootUrl}/signin-oidc",
+                    postLogoutRedirectUri: $"{blazorRootUrl}/signout-callback-oidc",
                     corsOrigins: new[] { blazorRootUrl.RemovePostFix("/") }
                 );
             }
