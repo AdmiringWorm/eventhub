@@ -70,6 +70,12 @@ namespace EventHub.Admin
             ConfigureBackgroundJobs();
             ConfigureTiming();
             ConfigureAutoApiControllers();
+
+            // Some depended-on ABP modules (e.g. CmsKit) migrated to Mapperly and
+            // replace the default IAutoObjectMappingProvider. Re-assert AutoMapper as
+            // this host's default so the application's own AutoMapper profiles keep
+            // working regardless of module load order.
+            context.Services.AddAutoMapperObjectMapper();
         }
 
         private void ConfigureAutoApiControllers()

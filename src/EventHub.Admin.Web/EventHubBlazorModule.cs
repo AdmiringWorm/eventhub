@@ -1,47 +1,149 @@
-﻿using System;
-using System.Net.Http;
+using System;
 using Blazorise.Bootstrap5;
 using Blazorise.Icons.FontAwesome;
-using EventHub.Admin.Web.Menus;
+using EventHub.Admin.Web.Components;
 using IdentityModel;
-using Microsoft.AspNetCore.Components.WebAssembly.Hosting;
+using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authentication.OpenIdConnect;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Components.Web;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Payment.Admin;
-using Volo.Abp.AspNetCore.Components.Web.BasicTheme.Themes.Basic;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
+using Microsoft.IdentityModel.Protocols.OpenIdConnect;
+using Volo.Abp;
+using Volo.Abp.Account;
+using Volo.Abp.AspNetCore.Authentication.OpenIdConnect;
+using Volo.Abp.AspNetCore.Components.Web;
+using Volo.Abp.AspNetCore.Components.Server.BasicTheme;
+using Volo.Abp.AspNetCore.Components.Server.BasicTheme.Bundling;
 using Volo.Abp.AspNetCore.Components.Web.Theming.Routing;
-using Volo.Abp.AspNetCore.Components.WebAssembly.BasicTheme;
-using Volo.Abp.Autofac.WebAssembly;
+using Volo.Abp.AspNetCore.Components.WebAssembly.BasicTheme.Bundling;
+using Volo.Abp.AspNetCore.Mvc.Client;
+using Volo.Abp.AspNetCore.Mvc.UI.Bundling;
+using Volo.Abp.AspNetCore.Mvc.UI.Theme.Basic;
+using Volo.Abp.AspNetCore.Mvc.UI.Theme.Basic.Bundling;
+using Volo.Abp.AspNetCore.Serilog;
+using Volo.Abp.Autofac;
 using Volo.Abp.AutoMapper;
-using Volo.Abp.Identity.Blazor.WebAssembly;
+using Volo.Abp.FeatureManagement.Blazor.Server;
+using Volo.Abp.Http.Client.IdentityModel.Web;
+using Volo.Abp.Identity.Blazor.Server;
 using Volo.Abp.Modularity;
-using Volo.Abp.SettingManagement.Blazor.WebAssembly;
+using Volo.Abp.SettingManagement.Blazor.Server;
+using Volo.Abp.Swashbuckle;
 using Volo.Abp.UI.Navigation;
 
 namespace EventHub.Admin.Web
 {
     [DependsOn(
-        typeof(AbpAutofacWebAssemblyModule),
+        typeof(AbpAutofacModule),
+        typeof(AbpAutoMapperModule),
+        typeof(AbpSwashbuckleModule),
+        typeof(AbpAspNetCoreSerilogModule),
+        typeof(AbpAspNetCoreMvcClientModule),
+        typeof(AbpAspNetCoreAuthenticationOpenIdConnectModule),
+        typeof(AbpHttpClientIdentityModelWebModule),
         typeof(EventHubAdminHttpApiClientModule),
-        typeof(AbpAspNetCoreComponentsWebAssemblyBasicThemeModule),
-        typeof(AbpIdentityBlazorWebAssemblyModule),
-        typeof(PaymentAdminBlazorModule),
-        typeof(AbpSettingManagementBlazorWebAssemblyModule)
+        typeof(AbpAccountApplicationContractsModule),
+        typeof(AbpIdentityBlazorServerModule),
+        typeof(AbpSettingManagementBlazorServerModule),
+        typeof(AbpFeatureManagementBlazorServerModule),
+        typeof(AbpAspNetCoreComponentsServerBasicThemeModule),
+        typeof(AbpAspNetCoreComponentsWebAssemblyBasicThemeBundlingModule),
+        typeof(AbpAspNetCoreMvcUiBasicThemeModule)
     )]
     public class EventHubBlazorModule : AbpModule
     {
+        public override void PreConfigureServices(ServiceConfigurationContext context)
+        {
+            PreConfigure<AbpAspNetCoreComponentsWebOptions>(options =>
+            {
+                options.IsBlazorWebApp = true;
+            });
+        }
+
         public override void ConfigureServices(ServiceConfigurationContext context)
         {
-            var environment = context.Services.GetSingletonInstance<IWebAssemblyHostEnvironment>();
-            var builder = context.Services.GetSingletonInstance<WebAssemblyHostBuilder>();
+            var hostingEnvironment = context.Services.GetHostingEnvironment();
+            var configuration = context.Services.GetConfiguration();
 
-            ConfigureAuthentication(builder);
-            ConfigureHttpClient(context, environment);
+            context.Services.AddRazorComponents()
+                .AddInteractiveServerComponents()
+                .AddInteractiveWebAssemblyComponents();
+
+            ConfigureAuthentication(context, configuration);
+            ConfigureBundles(hostingEnvironment);
             ConfigureBlazorise(context);
             ConfigureRouter(context);
-            ConfigureUI(builder);
             ConfigureMenu(context);
             ConfigureAutoMapper(context);
+        }
+
+        private void ConfigureBundles(IWebHostEnvironment hostingEnvironment)
+        {
+            Configure<AbpBundlingOptions>(options =>
+            {
+                // Blazor Web App
+                options.Parameters.InteractiveAuto = true;
+
+                // MVC UI
+                options.StyleBundles.Configure(
+                    BasicThemeBundles.Styles.Global,
+                    bundle =>
+                    {
+                        bundle.AddFiles("/global-styles.css");
+                    }
+                );
+
+                options.ScriptBundles.Configure(
+                    BasicThemeBundles.Scripts.Global,
+                    bundle =>
+                    {
+                        bundle.AddFiles("/global-scripts.js");
+                    }
+                );
+
+                // Blazor UI
+                options.StyleBundles.Configure(
+                    BlazorBasicThemeBundles.Styles.Global,
+                    bundle =>
+                    {
+                        bundle.AddFiles("/global-styles.css");
+                    }
+                );
+            });
+        }
+
+        private void ConfigureAuthentication(ServiceConfigurationContext context, IConfiguration configuration)
+        {
+            context.Services.AddAuthentication(options =>
+                {
+                    options.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme;
+                    options.DefaultChallengeScheme = OpenIdConnectDefaults.AuthenticationScheme;
+                })
+                .AddCookie(CookieAuthenticationDefaults.AuthenticationScheme, options =>
+                {
+                    options.ExpireTimeSpan = TimeSpan.FromDays(365);
+                })
+                .AddAbpOpenIdConnect(OpenIdConnectDefaults.AuthenticationScheme, options =>
+                {
+                    options.Authority = configuration["AuthServer:Authority"];
+                    options.RequireHttpsMetadata = Convert.ToBoolean(configuration["AuthServer:RequireHttpsMetadata"]);
+                    options.ResponseType = OpenIdConnectResponseType.Code;
+                    options.ClientId = configuration["AuthServer:ClientId"];
+                    options.ClientSecret = configuration["AuthServer:ClientSecret"];
+                    options.UsePkce = true;
+                    options.SaveTokens = true;
+                    options.GetClaimsFromUserInfoEndpoint = true;
+
+                    options.Scope.Add("role");
+                    options.Scope.Add("email");
+                    options.Scope.Add("phone");
+                    options.Scope.Add("EventHubAdmin");
+                });
         }
 
         private void ConfigureRouter(ServiceConfigurationContext context)
@@ -49,6 +151,7 @@ namespace EventHub.Admin.Web
             Configure<AbpRouterOptions>(options =>
             {
                 options.AppAssembly = typeof(EventHubBlazorModule).Assembly;
+                options.AdditionalAssemblies.Add(typeof(EventHubBlazorClientModule).Assembly);
             });
         }
 
@@ -56,7 +159,7 @@ namespace EventHub.Admin.Web
         {
             Configure<AbpNavigationOptions>(options =>
             {
-                options.MenuContributors.Add(new EventHubMenuContributor(context.Services.GetConfiguration()));
+                options.MenuContributors.Add(new EventHub.Admin.Web.Menus.EventHubMenuContributor(context.Services.GetConfiguration()));
             });
         }
 
@@ -67,37 +170,53 @@ namespace EventHub.Admin.Web
                 .AddFontAwesomeIcons();
         }
 
-        private static void ConfigureAuthentication(WebAssemblyHostBuilder builder)
-        {
-            builder.Services.AddOidcAuthentication(options =>
-            {
-                builder.Configuration.Bind("AuthServer", options.ProviderOptions);
-                options.UserOptions.RoleClaim = JwtClaimTypes.Role;
-                options.ProviderOptions.DefaultScopes.Add("EventHubAdmin");
-                options.ProviderOptions.DefaultScopes.Add("role");
-                options.ProviderOptions.DefaultScopes.Add("email");
-                options.ProviderOptions.DefaultScopes.Add("phone");
-            });
-        }
-
-        private static void ConfigureUI(WebAssemblyHostBuilder builder)
-        {
-            builder.RootComponents.Add<App>("#ApplicationContainer");
-        }
-
-        private static void ConfigureHttpClient(ServiceConfigurationContext context, IWebAssemblyHostEnvironment environment)
-        {
-            context.Services.AddTransient(sp => new HttpClient
-            {
-                BaseAddress = new Uri(environment.BaseAddress)
-            });
-        }
-
         private void ConfigureAutoMapper(ServiceConfigurationContext context)
         {
             Configure<AbpAutoMapperOptions>(options =>
             {
-                options.AddMaps<EventHubBlazorModule>();
+                // Register the client's AutoMapper profiles on the server too, so the
+                // InteractiveAuto server-side render path has the same object maps.
+                options.AddMaps<EventHubBlazorClientModule>();
+            });
+
+            context.Services.AddAutoMapperObjectMapper();
+        }
+
+        public override void OnApplicationInitialization(ApplicationInitializationContext context)
+        {
+            var env = context.GetEnvironment();
+            var app = context.GetApplicationBuilder();
+
+            if (env.IsDevelopment())
+            {
+                app.UseDeveloperExceptionPage();
+            }
+
+            app.UseAbpRequestLocalization();
+
+            if (!env.IsDevelopment())
+            {
+                app.UseHsts();
+            }
+
+            app.UseCorrelationId();
+            app.UseRouting();
+            app.MapAbpStaticAssets();
+            app.UseAbpSecurityHeaders();
+            app.UseAuthentication();
+            app.UseUnitOfWork();
+            app.UseDynamicClaims();
+            app.UseAntiforgery();
+            app.UseAuthorization();
+            app.UseAuditing();
+            app.UseAbpSerilogEnrichers();
+
+            app.UseConfiguredEndpoints(builder =>
+            {
+                builder.MapRazorComponents<App>()
+                    .AddInteractiveServerRenderMode()
+                    .AddInteractiveWebAssemblyRenderMode()
+                    .AddAdditionalAssemblies(builder.ServiceProvider.GetRequiredService<IOptions<AbpRouterOptions>>().Value.AdditionalAssemblies.ToArray());
             });
         }
     }

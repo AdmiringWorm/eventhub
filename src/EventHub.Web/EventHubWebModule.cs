@@ -87,7 +87,7 @@ namespace EventHub.Web
             ConfigureRedis(context, configuration);
             ConfigureUrls(configuration);
             ConfigureAuthentication(context, configuration);
-            ConfigureAutoMapper();
+            ConfigureAutoMapper(context);
             ConfigureVirtualFileSystem(hostingEnvironment);
             ConfigureNavigationServices(configuration);
             ConfigureCookies(context);
@@ -177,12 +177,18 @@ namespace EventHub.Web
                 });
         }
         
-        private void ConfigureAutoMapper()
+        private void ConfigureAutoMapper(ServiceConfigurationContext context)
         {
             Configure<AbpAutoMapperOptions>(options =>
             {
                 options.AddMaps<EventHubWebModule>();
             });
+
+            // Some depended-on ABP modules (e.g. CmsKit) migrated to Mapperly and
+            // replace the default IAutoObjectMappingProvider. Re-assert AutoMapper as
+            // this host's default so the application's own AutoMapper profiles keep
+            // working regardless of module load order.
+            context.Services.AddAutoMapperObjectMapper();
         }
 
         private void ConfigureVirtualFileSystem(IWebHostEnvironment hostingEnvironment)

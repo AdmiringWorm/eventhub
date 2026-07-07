@@ -71,6 +71,12 @@ namespace EventHub
             ConfigureAutoApiControllers();
             ConfigureTiming();
             ConfigurePremiumPlanInfo(context, configuration);
+
+            // Some depended-on ABP modules (e.g. CmsKit) migrated to Mapperly and
+            // replace the default IAutoObjectMappingProvider. Re-assert AutoMapper as
+            // this host's default so the application's own AutoMapper profiles keep
+            // working regardless of module load order.
+            context.Services.AddAutoMapperObjectMapper();
         }
 
         private void ConfigureAutoApiControllers()
@@ -133,6 +139,7 @@ namespace EventHub
                     options.Authority = configuration["AuthServer:Authority"];
                     options.RequireHttpsMetadata = Convert.ToBoolean(configuration["AuthServer:RequireHttpsMetadata"]);
                     options.Audience = "EventHub";
+                    options.MapInboundClaims = false;
                 });
         }
 
